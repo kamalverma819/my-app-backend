@@ -10,6 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class NewLotusApplication {
 
 	public static void main(String[] args) {
+		System.out.println("Mongo URI: " + System.getenv("SPRING_DATA_MONGODB_URI"));
 		SpringApplication.run(NewLotusApplication.class, args);
 	}
 	
