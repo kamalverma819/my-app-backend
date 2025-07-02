@@ -20,10 +20,14 @@ public class NewLotusApplication {
 	     @Override
 	     public void addCorsMappings(CorsRegistry registry) {
 	         registry.addMapping("/**")
-	                 .allowedOrigins("http://localhost:3000")
-	                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-	                 .allowedHeaders("*")
-	                 .allowCredentials(true);
+//	         .allowedOrigins("*")    all origins for testing (not recommended for production)
+	            .allowedOrigins(
+	                    "http://localhost:3000", 
+	                    "https://my-app-frontend-1-7h0h.onrender.com"
+	                )	                 
+	            .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                 .allowedHeaders("*")
+                 .allowCredentials(true);
 	     }
 	 };
 	}
