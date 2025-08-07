@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -117,6 +119,94 @@ public class SalesController {
     public ResponseEntity<List<SalesInvoice>> getAllSales() {
         return ResponseEntity.ok(salesRepo.findAll());
     }   
+    
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateSale(@PathVariable String id, @RequestBody SalesInvoice updatedInvoice) {
+        Optional<SalesInvoice> existingOpt = salesRepo.findById(id);
+        if (existingOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        SalesInvoice existingInvoice = existingOpt.get();
+
+        // Step 1: Restore stock from original sale
+        for (SalesItem oldItem : existingInvoice.getItems()) {
+            Optional<Item> itemOpt = itemRepo.findById(oldItem.getItemId());
+            itemOpt.ifPresent(item -> {
+                item.setStock(item.getStock() - oldItem.getQuantity()); // revert old sale
+                itemRepo.save(item);
+            });
+        }
+
+        // Step 2: Check new stock availability
+        for (SalesItem newItem : updatedInvoice.getItems()) {
+            Optional<Item> itemOpt = itemRepo.findById(newItem.getItemId());
+            if (itemOpt.isEmpty()) {
+                return ResponseEntity.badRequest().body("Item not found: " + newItem.getItemId());
+            }
+            Item item = itemOpt.get();
+            if (newItem.getQuantity() > item.getStock()) {
+                return ResponseEntity.badRequest().body("Not enough stock for item: " + item.getName());
+            }
+        }
+
+        // Step 3: Calculate GST and totals
+        String customerStateCode = updatedInvoice.getGstin() != null && updatedInvoice.getGstin().length() >= 2
+            ? updatedInvoice.getGstin().substring(0, 2)
+            : "";
+        String companyStateCode = "23"; // MP
+
+        double subtotal = 0, cgst = 0, sgst = 0, igst = 0;
+
+        for (SalesItem item : updatedInvoice.getItems()) {
+            double itemTotal = item.getQuantity() * item.getPrice() * (1 - item.getDiscount() / 100);
+            double gstAmount = itemTotal * item.getGstRate() / 100;
+
+            item.setTotal(itemTotal);
+            item.setGstAmount(gstAmount);
+
+            subtotal += itemTotal;
+
+            if (companyStateCode.equals(customerStateCode)) {
+                cgst += gstAmount / 2;
+                sgst += gstAmount / 2;
+            } else {
+                igst += gstAmount;
+            }
+        }
+
+        updatedInvoice.setId(id); // Ensure ID is preserved
+        updatedInvoice.setSubtotal(subtotal);
+        updatedInvoice.setCgst(cgst);
+        updatedInvoice.setSgst(sgst);
+        updatedInvoice.setIgst(igst);
+        updatedInvoice.setTotal(subtotal + cgst + sgst + igst + updatedInvoice.getFreight());
+
+        // Step 4: Save invoice
+        SalesInvoice saved = salesRepo.save(updatedInvoice);
+
+        // Step 5: Deduct stock as per new sale
+        for (SalesItem item : updatedInvoice.getItems()) {
+            Item dbItem = itemRepo.findById(item.getItemId()).get();
+            dbItem.setStock(dbItem.getStock() - item.getQuantity());
+            itemRepo.save(dbItem);
+        }
+
+        // Step 6: Enrich items with originalQuantity and currentStock (for frontend)
+        List<SalesItem> enrichedItems = updatedInvoice.getItems().stream().map(i -> {
+            itemRepo.findById(i.getItemId()).ifPresent(dbItem -> {
+                i.setOriginalQuantity(i.getQuantity()); // For edit tracking
+                i.setCurrentStock(dbItem.getStock());   // Stock after update
+            });
+            return i;
+        }).collect(Collectors.toList());
+
+        saved.setItems(enrichedItems);
+
+        return ResponseEntity.ok(saved);
+    }
+
+
     
     @PutMapping("/{id}/status")
     public ResponseEntity<?> updateStatus(@PathVariable String id, @RequestBody Map<String, String> payload) {

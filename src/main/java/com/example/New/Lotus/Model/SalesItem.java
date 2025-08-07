@@ -14,5 +14,8 @@ public class SalesItem {
     private double gstRate;
     private double total;       // price * quantity
     private double gstAmount;   // (price * quantity * gstRate)/100
+    private double discount;
+    private int originalQuantity;
+    private int currentStock;
 
 }
